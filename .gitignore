@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ipynb_checkpoints/
+.DS_Store
+.vscode/
+.venv/
+
+# Generated figures (commit the keepers explicitly)
+notes/figures/scratch/
+*.pdf.tmp
+
+# Local data caches (rsync'd from cluster)
+notes/data/*.tsv
+!notes/data/.keep

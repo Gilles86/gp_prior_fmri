@@ -1,0 +1,28 @@
+name: gp_prior_fmri
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy
+  - pandas
+  - scipy
+  - scikit-learn
+  - matplotlib
+  - seaborn
+  - nibabel
+  - nilearn
+  - pyyaml
+  - pytest
+  - jupyter
+  - ipykernel
+  - pip
+  - pip:
+    # braincoder and the source-dataset projects: install editable
+    # locally after env build, e.g.:
+    #     pip install -e ~/git/braincoder
+    #     pip install -e ~/git/neural_priors
+    #     pip install -e ~/git/tms_risk
+    #     pip install -e .                       # gp_prior_fmri itself
+    - tensorflow-macos==2.16.*
+    - tensorflow-metal
+    - keras>=3.13
