@@ -129,8 +129,14 @@ class Adapter(DatasetAdapter):
             f'sub-{subject}_ses-{session}_task-task_'
             f'space-T1w_desc-stims1_pe.nii.gz')
 
-        masker = sub.get_volume_mask(roi=roi, session=session,
-                                      epi_space=True, return_masker=True)
+        # tms_risk's Subject.get_volume_mask returns the mask Img
+        # only (no return_masker flag). Construct the NiftiMasker
+        # here for parity with the neural_priors adapter.
+        from nilearn.maskers import NiftiMasker
+        mask_img = sub.get_volume_mask(roi=roi, session=int(session),
+                                        epi_space=True)
+        masker = NiftiMasker(mask_img=mask_img)
+        masker.fit()
         data_2d = masker.fit_transform(pe_fn).astype(np.float32)
         data = pd.DataFrame(data_2d, index=paradigm.index)
         data.columns.name = 'voxel'
@@ -138,6 +144,20 @@ class Adapter(DatasetAdapter):
         xyz = _voxel_centroids_mm(masker)
         return LoadedFmriData(paradigm=paradigm, data=data,
                                 masker=masker, xyz=xyz, sub=sub)
+
+    def get_white_surface_path(self, subject: str, hemi: str) -> str:
+        # tms_risk's anat lives under ses-1; the smoothwm.surf.gii
+        # is the white-matter surface. We bypass Subject.get_surf_info()
+        # so we don't trip on the missing FreeSurfer curv files that
+        # method also strictly checks.
+        path = op.join(
+            self.bids_folder, 'derivatives', 'fmriprep',
+            f'sub-{subject}', 'ses-1', 'anat',
+            f'sub-{subject}_ses-1_hemi-{hemi}_smoothwm.surf.gii')
+        if not op.exists(path):
+            raise FileNotFoundError(
+                f'tms_risk white surface not found: {path}')
+        return path
 
     def cv_folds(self, paradigm: pd.DataFrame) -> list:
         # leave-one-run-out within one session

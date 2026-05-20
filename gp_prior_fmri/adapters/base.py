@@ -126,6 +126,21 @@ class DatasetAdapter(ABC):
         """
         raise NotImplementedError
 
+    # ------------------------------------------------------- surface lookup
+    @abstractmethod
+    def get_white_surface_path(self, subject: str, hemi: str) -> str:
+        """Path to the white-matter GIfTI surface (``.surf.gii``) for
+        one hemisphere. ``hemi`` is ``'L'`` or ``'R'``. The file must
+        exist; the geodesic-distance helper loads it directly.
+
+        We expose the path (not a path-set or info dict) because the
+        wrapped projects' ``get_surf_info()`` methods strictly assert
+        that every related file (inflated, pial, curv...) exists,
+        which fails on minimally-preprocessed subjects. The white
+        surface is the only one this pipeline actually needs.
+        """
+        raise NotImplementedError
+
     # ------------------------------------------------------- CV folds
     def cv_folds(self, paradigm: pd.DataFrame) -> list:
         """Return the list of fold keys for leave-one-X-out CV.

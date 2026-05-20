@@ -161,7 +161,8 @@ def main(subject, adapter_name='neural_priors', bids_folder=None,
 
     # ---- geodesic distance matrix ----
     hemi = roi_to_hemi_letter(roi)
-    vertices, faces = load_white_surface(sub, hemi)
+    vertices, faces = load_white_surface(
+        adapter.get_white_surface_path(str(subject), hemi))
     D, vtx_idx, snap_dist = cortical_distance_matrix(
         xyz, vertices, faces, progressbar=not debug)
     print(f'[fit] snap median {np.median(snap_dist):.2f} mm | '

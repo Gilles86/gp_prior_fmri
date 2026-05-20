@@ -108,8 +108,16 @@ class Adapter(DatasetAdapter):
         # (LinearScalingModel) the full DataFrame is used.
         paradigm = paradigm_full[['x', 'range']].astype(np.float32)
 
-        masker = sub.get_volume_mask(roi=roi, epi_space=True,
-                                      return_masker=True)
+        # Build the NiftiMasker here rather than via
+        # ``sub.get_volume_mask(return_masker=True)`` — the neural_priors
+        # version calls ``NiftiMasker(resampling_target='data')`` which
+        # has been removed in modern nilearn. Construct it ourselves
+        # from the mask Img so we work across nilearn versions.
+        from nilearn.maskers import NiftiMasker
+        mask_img = sub.get_volume_mask(roi=roi, epi_space=True,
+                                        return_masker=False)
+        masker = NiftiMasker(mask_img=mask_img)
+        masker.fit()
         data_img = sub.get_single_trial_estimates(session=None,
                                                     smoothed=smoothed)
         data_2d = masker.fit_transform(data_img).astype(np.float32)
@@ -123,6 +131,18 @@ class Adapter(DatasetAdapter):
         xyz = _voxel_centroids_mm(masker)
         return LoadedFmriData(paradigm=paradigm, data=data,
                                 masker=masker, xyz=xyz, sub=sub)
+
+    def get_white_surface_path(self, subject: str, hemi: str) -> str:
+        # Mirrors neural_priors' get_surf_info logic for the 'inner'
+        # (white) entry, without the all-files-must-exist assertion.
+        path = op.join(
+            self.bids_folder, 'derivatives', 'fmriprep',
+            f'sub-{subject}', 'anat',
+            f'sub-{subject}_hemi-{hemi}_white.surf.gii')
+        if not op.exists(path):
+            raise FileNotFoundError(
+                f'neural_priors white surface not found: {path}')
+        return path
 
     def cv_folds(self, paradigm: pd.DataFrame) -> list:
         # leave-one-(session, run2)-out

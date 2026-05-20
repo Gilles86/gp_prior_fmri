@@ -22,16 +22,14 @@ def voxel_centroids_mm(masker):
     return nib.affines.apply_affine(affine, ijk).astype(np.float32)
 
 
-def load_white_surface(sub, hemi_letter: str):
-    """Load fmriprep's white-matter GIfTI surface for one hemisphere.
+def load_white_surface(path: str):
+    """Load a white-matter GIfTI surface from a path.
 
     Returns ``(vertices_mm, faces)`` in T1w space so coordinates match
-    the EPI mask directly. ``sub`` is any object with a
-    ``get_surf_info()`` method returning ``{hemi: {'inner': path}}``
-    — both neural_priors' and tms_risk's Subject classes have it.
+    the EPI mask directly. The caller (typically the adapter) is
+    responsible for constructing the path.
     """
-    surf_info = sub.get_surf_info()
-    gii = nib.load(surf_info[hemi_letter]['inner'])
+    gii = nib.load(path)
     return (gii.darrays[0].data.astype(np.float32),
             gii.darrays[1].data.astype(np.int64))
 
