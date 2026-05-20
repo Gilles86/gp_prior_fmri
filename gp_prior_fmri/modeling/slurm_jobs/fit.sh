@@ -9,16 +9,23 @@
 
 # Usage:
 #   sbatch --array=1-10,12-22,24-41%10 fit.sh neural_priors NPCr "--joint_hyperparams --prior_params mu --tag joint_mu"
-#   sbatch --array=1-10%10              fit.sh tms_risk      NPCr "--joint_hyperparams --prior_params mu --tag joint_mu_tms"
+#   sbatch --array=45%1                fit.sh tms_risk      NPCr "--joint_hyperparams --prior_params mu --tag joint_mu_tms"
 
 PARTICIPANT=$(printf "%02d" $SLURM_ARRAY_TASK_ID)
 ADAPTER=${1:-neural_priors}
 ROI=${2:-NPCr}
 EXTRA_FLAGS="${3:-}"
 
+# Per-adapter env + BIDS root.
 case "$ADAPTER" in
-    neural_priors)  BIDS=/shares/zne.uzh/gdehol/ds-neuralpriors ;;
-    tms_risk)       BIDS=/shares/zne.uzh/gdehol/ds-tmsrisk      ;;
+    neural_priors)
+        BIDS=/shares/zne.uzh/gdehol/ds-neuralpriors
+        PYTHON=$HOME/data/conda/envs/neural_priors_gp/bin/python
+        ;;
+    tms_risk)
+        BIDS=/shares/zne.uzh/gdehol/ds-tmsrisk
+        PYTHON=$HOME/data/conda/envs/tms_risk_cuda/bin/python
+        ;;
     *) echo "Unknown adapter $ADAPTER" >&2; exit 1 ;;
 esac
 
@@ -33,8 +40,6 @@ scontrol update JobId=$SLURM_JOB_ID JobName="gp_${ADAPTER}.${ROI}${SMOOTH}.${TAG
 exec > "$LOGFILE" 2>&1
 
 export PYTHONUNBUFFERED=1
-PYTHON=$HOME/data/conda/envs/gp_prior_fmri_cuda/bin/python
-
 $PYTHON -m gp_prior_fmri.modeling.fit \
     $PARTICIPANT \
     --adapter $ADAPTER \
