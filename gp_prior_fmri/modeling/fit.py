@@ -64,11 +64,22 @@ def _initial_pars(n_vx, paradigm_x):
 
 
 # ---------------------------------------------------------------- per-fold fits
-def _fit_classical(model, train_data, train_par, init_pars, max_iter):
+def _fit_classical(model, train_data, train_par, init_pars, max_iter,
+                    no_early_stop=False):
+    """Classical SSQ fit. When ``no_early_stop`` is True we set
+    ``min_n_iterations=max_iter``, disabling the R²-plateau early
+    stop so the fit runs the full budget. Diagnostic for whether the
+    "classical vs ML" gap observed at ``max_iter=2000`` on real data
+    is just early-stop bias against classical's slower-converging
+    trajectory (cf. classical_vs_ml_convergence report).
+    """
     from braincoder.optimize import ParameterFitter
     fitter = ParameterFitter(model, train_data, train_par, log_dir=False)
-    pars = fitter.fit(init_pars=init_pars, max_n_iterations=max_iter,
-                      progressbar=False)
+    kwargs = dict(init_pars=init_pars, max_n_iterations=max_iter,
+                   progressbar=False)
+    if no_early_stop:
+        kwargs['min_n_iterations'] = max_iter
+    pars = fitter.fit(**kwargs)
     return pars, float(fitter.r2.mean())
 
 
@@ -105,6 +116,7 @@ def main(subject, adapter_name='neural_priors', bids_folder=None,
          tag='default', max_iter=2000, debug=False, output_dir=None,
          prior_params=None,
          joint_hyperparams=False, shared_lengthscale=False, use_wwt=True,
+         no_early_stop_classical=False,
          **adapter_kwargs):
     """Run the full GP-prior pipeline for one subject (+ optional session)."""
 
@@ -190,6 +202,7 @@ def main(subject, adapter_name='neural_priors', bids_folder=None,
         'shared_lengthscale': bool(shared_lengthscale),
         'joint_hyperparams': bool(joint_hyperparams),
         'use_wwt':           bool(use_wwt),
+        'no_early_stop_classical': bool(no_early_stop_classical),
         'max_iter':          int(max_iter),
         'debug':             bool(debug),
         'prior_params':      list(prior_params),
@@ -229,7 +242,8 @@ def main(subject, adapter_name='neural_priors', bids_folder=None,
         train_par = paradigm_x.drop(fold).astype(np.float32)
 
         cls_pars, cls_train_r2 = _fit_classical(
-            model, train_data, train_par, init, max_iter)
+            model, train_data, train_par, init, max_iter,
+            no_early_stop=no_early_stop_classical)
         cls_test_pred  = model.predict(parameters=cls_pars,
                                          paradigm=test_par.to_frame())
         cls_train_pred = model.predict(parameters=cls_pars,
@@ -417,6 +431,11 @@ if __name__ == '__main__':
                          'params in stage 3.')
     p.add_argument('--shared_lengthscale', action='store_true')
     p.add_argument('--no_wwt', dest='use_wwt', action='store_false')
+    p.add_argument('--no_early_stop_classical', action='store_true',
+                    help='Disable classical ParameterFitter R²-plateau early '
+                         'stop by setting min_n_iterations=max_iter. '
+                         'Diagnostic for whether classical was under-converged '
+                         'in the joint_mu_tms vs ML comparison.')
     # neural_priors-specific:
     p.add_argument('--stim_range', default='both',
                     choices=['narrow', 'wide', 'both'])
@@ -436,4 +455,5 @@ if __name__ == '__main__':
          joint_hyperparams=a.joint_hyperparams,
          shared_lengthscale=a.shared_lengthscale,
          use_wwt=a.use_wwt,
+         no_early_stop_classical=a.no_early_stop_classical,
          **extra)
