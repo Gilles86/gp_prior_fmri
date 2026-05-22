@@ -65,18 +65,19 @@ def _initial_pars(n_vx, paradigm_x):
 
 # ---------------------------------------------------------------- per-fold fits
 def _fit_classical(model, train_data, train_par, init_pars, max_iter,
-                    no_early_stop=False):
-    """Classical SSQ fit. When ``no_early_stop`` is True we set
-    ``min_n_iterations=max_iter``, disabling the R²-plateau early
-    stop so the fit runs the full budget. Diagnostic for whether the
-    "classical vs ML" gap observed at ``max_iter=2000`` on real data
-    is just early-stop bias against classical's slower-converging
-    trajectory (cf. classical_vs_ml_convergence report).
+                    no_early_stop=False, noise_model='ssq'):
+    """Classical per-voxel fit via ``ParameterFitter``.
+
+    ``noise_model`` toggles between the SSQ loss (default in
+    braincoder 0.6, default here for back-compat) and the per-voxel
+    Gaussian-likelihood loss added in braincoder 0.6 (see CHANGELOG).
+    ``no_early_stop=True`` sets ``min_n_iterations=max_iter`` so the
+    R²-plateau early stop can't fire.
     """
     from braincoder.optimize import ParameterFitter
     fitter = ParameterFitter(model, train_data, train_par, log_dir=False)
     kwargs = dict(init_pars=init_pars, max_n_iterations=max_iter,
-                   progressbar=False)
+                   progressbar=False, noise_model=noise_model)
     if no_early_stop:
         kwargs['min_n_iterations'] = max_iter
     pars = fitter.fit(**kwargs)
@@ -117,6 +118,7 @@ def main(subject, adapter_name='neural_priors', bids_folder=None,
          prior_params=None,
          joint_hyperparams=False, shared_lengthscale=False, use_wwt=True,
          no_early_stop_classical=False,
+         classical_noise_model='ssq',
          **adapter_kwargs):
     """Run the full GP-prior pipeline for one subject (+ optional session)."""
 
@@ -203,6 +205,7 @@ def main(subject, adapter_name='neural_priors', bids_folder=None,
         'joint_hyperparams': bool(joint_hyperparams),
         'use_wwt':           bool(use_wwt),
         'no_early_stop_classical': bool(no_early_stop_classical),
+        'classical_noise_model':   classical_noise_model,
         'max_iter':          int(max_iter),
         'debug':             bool(debug),
         'prior_params':      list(prior_params),
@@ -243,7 +246,8 @@ def main(subject, adapter_name='neural_priors', bids_folder=None,
 
         cls_pars, cls_train_r2 = _fit_classical(
             model, train_data, train_par, init, max_iter,
-            no_early_stop=no_early_stop_classical)
+            no_early_stop=no_early_stop_classical,
+            noise_model=classical_noise_model)
         cls_test_pred  = model.predict(parameters=cls_pars,
                                          paradigm=test_par.to_frame())
         cls_train_pred = model.predict(parameters=cls_pars,
@@ -436,6 +440,13 @@ if __name__ == '__main__':
                          'stop by setting min_n_iterations=max_iter. '
                          'Diagnostic for whether classical was under-converged '
                          'in the joint_mu_tms vs ML comparison.')
+    p.add_argument('--classical_noise_model', default='ssq',
+                    choices=['ssq', 'gaussian'],
+                    help='Noise model for the classical ParameterFitter loss. '
+                         'New in braincoder 0.6: gaussian uses a per-voxel '
+                         'σ²ᵥ MLE, equivalent at convergence to ssq but much '
+                         'faster on heteroskedastic data. Will become the '
+                         'braincoder default in 0.7.')
     # neural_priors-specific:
     p.add_argument('--stim_range', default='both',
                     choices=['narrow', 'wide', 'both'])
@@ -456,4 +467,5 @@ if __name__ == '__main__':
          shared_lengthscale=a.shared_lengthscale,
          use_wwt=a.use_wwt,
          no_early_stop_classical=a.no_early_stop_classical,
+         classical_noise_model=a.classical_noise_model,
          **extra)
