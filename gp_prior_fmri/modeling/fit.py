@@ -68,11 +68,9 @@ def _fit_classical(model, train_data, train_par, init_pars, max_iter,
                     no_early_stop=False, noise_model='ssq'):
     """Classical per-voxel fit via ``ParameterFitter``.
 
-    ``noise_model`` toggles between the SSQ loss (default in
-    braincoder 0.6, default here for back-compat) and the per-voxel
-    Gaussian-likelihood loss added in braincoder 0.6 (see CHANGELOG).
-    ``no_early_stop=True`` sets ``min_n_iterations=max_iter`` so the
-    R²-plateau early stop can't fire.
+    Returns ``(pars, train_r2, loss_history)``. The loss history is
+    the per-iteration value of the active loss (SSQ-sum or per-voxel
+    Gaussian nLL); same length as ``r2_history_``.
     """
     from braincoder.optimize import ParameterFitter
     fitter = ParameterFitter(model, train_data, train_par, log_dir=False)
@@ -81,20 +79,22 @@ def _fit_classical(model, train_data, train_par, init_pars, max_iter,
     if no_early_stop:
         kwargs['min_n_iterations'] = max_iter
     pars = fitter.fit(**kwargs)
-    return pars, float(fitter.r2.mean())
+    return pars, float(fitter.r2.mean()), fitter.loss_history_
 
 
 def _fit_ml(model, train_data, train_par, init_pars, max_iter):
+    """Returns ``(map_estimates, sigma, loss_history)``."""
     from braincoder.optimize.bayesian_fitter import BayesianParameterFitter
     fitter = BayesianParameterFitter(model, train_data, train_par, priors={})
     fitter.classical_estimates = init_pars
     fitter.fit_map(max_n_iterations=max_iter, init_pars=init_pars,
                     progressbar=False)
-    return fitter.map_estimates, fitter.map_sigma
+    return fitter.map_estimates, fitter.map_sigma, fitter.map_history
 
 
 def _fit_bayes(model, train_data, train_par, D, classical_pars,
                 max_iter, prior_params, joint_hyperparams, shared_lengthscale):
+    """Returns ``(map_estimates, sigma, hyperpars, loss_history)``."""
     from braincoder.optimize.bayesian_fitter import BayesianParameterFitter
     priors = _build_priors(D, classical_pars, prior_params)
     fitter = BayesianParameterFitter(model, train_data, train_par, priors=priors)
@@ -108,7 +108,7 @@ def _fit_bayes(model, train_data, train_par, D, classical_pars,
     fitter.fit_map(max_n_iterations=max_iter, progressbar=False,
                     joint_hyperparams=joint_hyperparams)
     hp = {name: priors[name].hyperparameters for name in prior_params}
-    return fitter.map_estimates, fitter.map_sigma, hp
+    return fitter.map_estimates, fitter.map_sigma, hp, fitter.map_history
 
 
 # ---------------------------------------------------------------- main
@@ -244,7 +244,7 @@ def main(subject, adapter_name='neural_priors', bids_folder=None,
         test_par = paradigm_x.loc[fold].astype(np.float32)
         train_par = paradigm_x.drop(fold).astype(np.float32)
 
-        cls_pars, cls_train_r2 = _fit_classical(
+        cls_pars, cls_train_r2, cls_loss = _fit_classical(
             model, train_data, train_par, init, max_iter,
             no_early_stop=no_early_stop_classical,
             noise_model=classical_noise_model)
@@ -254,7 +254,7 @@ def main(subject, adapter_name='neural_priors', bids_folder=None,
                                          paradigm=train_par.to_frame())
         cls_cvr2 = get_rsq(test_data, cls_test_pred)
 
-        ml_pars, ml_sigma = _fit_ml(model, train_data, train_par,
+        ml_pars, ml_sigma, ml_loss = _fit_ml(model, train_data, train_par,
                                      init, max_iter)
         ml_test_pred  = model.predict(parameters=ml_pars,
                                         paradigm=test_par.to_frame())
@@ -262,7 +262,7 @@ def main(subject, adapter_name='neural_priors', bids_folder=None,
                                         paradigm=train_par.to_frame())
         ml_cvr2 = get_rsq(test_data, ml_test_pred)
 
-        map_pars, sigma, hp = _fit_bayes(
+        map_pars, sigma, hp, bayes_loss = _fit_bayes(
             model, train_data, train_par, D, cls_pars,
             max_iter, prior_params, joint_hyperparams, shared_lengthscale)
         map_test_pred  = model.predict(parameters=map_pars,
@@ -334,6 +334,11 @@ def main(subject, adapter_name='neural_priors', bids_folder=None,
             'hyperparameters': hp,
             'ml_sigma': ml_sigma, 'bayes_sigma': sigma,
             'decoding': decoding,
+            'loss_history': {
+                'classical': np.asarray(cls_loss, dtype=np.float64),
+                'ml':        np.asarray(ml_loss,  dtype=np.float64),
+                'bayes':     np.asarray(bayes_loss, dtype=np.float64),
+            },
         })
 
     # ---- write outputs ----
@@ -378,6 +383,22 @@ def _write_outputs(output_dir, subject, session, fold_results, roi):
         pd.DataFrame(hp_rows).to_csv(op.join(
             output_dir,
             f'sub-{subject}{suffix}_desc-hyperpars.tsv'),
+            sep='\t', index=False)
+
+    # Loss history: long-form per (fold, method, step) → loss. One TSV
+    # per subject so we can inspect convergence across methods and folds.
+    loss_rows = []
+    for r in fold_results:
+        for method, arr in r['loss_history'].items():
+            for step, val in enumerate(arr):
+                loss_rows.append(dict(fold=str(r['fold']),
+                                       method=method,
+                                       step=int(step),
+                                       loss=float(val)))
+    if loss_rows:
+        pd.DataFrame(loss_rows).to_csv(op.join(
+            output_dir,
+            f'sub-{subject}{suffix}_desc-loss_history.tsv'),
             sep='\t', index=False)
 
     # Decoding long-form
